@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Cristo Rey">
+  <rect width="512" height="512" rx="96" fill="#14532d"/>
+  <path d="M118 328c54-95 130-141 228-138 31 1 55 8 72 19-64 7-115 36-153 88-23 31-49 50-79 57-25 6-48-2-68-26Z" fill="#eab308"/>
+  <path d="M132 356c59-29 127-42 203-39 13 1 25 2 37 4-44 40-96 61-156 62-34 1-62-8-84-27Z" fill="#86efac"/>
+  <path d="M153 164h206v42H153zM235 82h42v220h-42z" fill="#f8fafc"/>
+  <path d="M94 414h324" stroke="#f8fafc" stroke-width="28" stroke-linecap="round"/>
+</svg>

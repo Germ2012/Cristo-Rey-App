@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#14532d">
+    <title>Comite Cristo Rey</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div id="app" class="app-shell"></div>
+    <template id="modal-template">
+      <dialog class="modal">
+        <form method="dialog" class="modal__box">
+          <div class="modal__header">
+            <h2></h2>
+            <button class="icon-button" value="cancel" aria-label="Cerrar">x</button>
+          </div>
+          <div class="modal__content"></div>
+        </form>
+      </dialog>
+    </template>
+    <script src="app.js" defer></script>
+  </body>
+</html>
