@@ -720,6 +720,16 @@ tr:last-child td {
   color: #8a4b0e;
 }
 
+.draft-notice {
+  padding: 10px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #174ea6;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
 .detail-stack {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);

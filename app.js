@@ -1,4 +1,5 @@
 const STORAGE_KEY = "cristo_rey_state_v1";
+const FORM_DRAFT_KEY = "cristo_rey_form_drafts_v1";
 
 const views = [
   { id: "dashboard", label: "Inicio", icon: "IN", group: "Resumen", subtitle: "Resumen financiero, alertas y acciones frecuentes." },
@@ -61,6 +62,8 @@ document.addEventListener("click", handleClick);
 document.addEventListener("submit", handleSubmit);
 document.addEventListener("input", handleInput);
 document.addEventListener("change", handleChange);
+window.addEventListener("beforeunload", handleBeforeUnload);
+window.CristoReyHasUnsavedDrafts = () => hasFormDrafts();
 
 function loadState() {
   try {
@@ -404,6 +407,7 @@ function render() {
     </main>
     ${renderFloatingMenu(current, summaries)}
   `;
+  restoreFormDrafts();
 }
 
 function renderSidebar(current, summaries) {
@@ -1667,6 +1671,125 @@ function menuButton(className, text, attrs = "") {
   return `<button class="${escapeAttr(className)}" type="button" ${attrs}>${escapeHtml(text)}</button>`;
 }
 
+function loadFormDrafts() {
+  try {
+    return JSON.parse(localStorage.getItem(FORM_DRAFT_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveFormDrafts(drafts) {
+  localStorage.setItem(FORM_DRAFT_KEY, JSON.stringify(drafts));
+}
+
+function formDraftKey(form) {
+  const contextNames = ["kind", "itemId", "installmentId", "memberId", "loanId"];
+  const context = contextNames
+    .map((name) => {
+      const field = form.querySelector(`input[type="hidden"][name="${name}"]`);
+      return field ? `${name}:${field.value}` : "";
+    })
+    .filter(Boolean)
+    .join("|");
+  return `${ui.view}:${form.dataset.form}${context ? `:${context}` : ""}`;
+}
+
+function formDraftData(form) {
+  const data = {};
+  for (const field of form.elements) {
+    if (!field.name || field.type === "file" || field.disabled) continue;
+    if ((field.type === "checkbox" || field.type === "radio") && !field.checked) continue;
+    data[field.name] = field.value;
+  }
+  return data;
+}
+
+function draftHasUserContent(data) {
+  return Object.entries(data).some(([name, value]) => {
+    if (["kind", "itemId", "installmentId", "memberId", "loanId"].includes(name)) return false;
+    return String(value || "").trim() !== "";
+  });
+}
+
+function saveFormDraft(form) {
+  const key = formDraftKey(form);
+  const data = formDraftData(form);
+  const drafts = loadFormDrafts();
+
+  if (draftHasUserContent(data)) {
+    drafts[key] = {
+      savedAt: new Date().toISOString(),
+      data
+    };
+  } else {
+    delete drafts[key];
+  }
+
+  saveFormDrafts(drafts);
+  markDraftNotice(form, drafts[key] ? "Borrador guardado automaticamente." : "");
+}
+
+function restoreFormDrafts(root = document) {
+  const drafts = loadFormDrafts();
+  root.querySelectorAll("form[data-form]").forEach((form) => {
+    const draft = drafts[formDraftKey(form)];
+    if (!draft?.data) return;
+
+    Object.entries(draft.data).forEach(([name, value]) => {
+      const field = form.elements.namedItem(name);
+      if (!field) return;
+      if (typeof RadioNodeList !== "undefined" && field instanceof RadioNodeList) {
+        [...field].forEach((item) => {
+          if (item.value === value) item.checked = true;
+        });
+        return;
+      }
+      if (field.type === "checkbox") {
+        field.checked = value === "on" || value === "true";
+        return;
+      }
+      field.value = value;
+    });
+
+    markDraftNotice(form, "Borrador restaurado. Puede continuar donde quedo o enviar el formulario.");
+  });
+}
+
+function markDraftNotice(form, message) {
+  let notice = form.querySelector("[data-draft-notice]");
+  if (!message) {
+    notice?.remove();
+    return;
+  }
+
+  if (!notice) {
+    notice = document.createElement("div");
+    notice.className = "draft-notice field--wide";
+    notice.dataset.draftNotice = "true";
+    form.prepend(notice);
+  }
+
+  notice.textContent = message;
+}
+
+function clearFormDraftByKey(key) {
+  const drafts = loadFormDrafts();
+  delete drafts[key];
+  saveFormDrafts(drafts);
+}
+
+function hasFormDrafts(root = document) {
+  const drafts = loadFormDrafts();
+  if (!root || root === document) return Object.keys(drafts).length > 0;
+  return [...root.querySelectorAll("form[data-form]")].some((form) => Boolean(drafts[formDraftKey(form)]));
+}
+
+function confirmLeavingDrafts(root = document) {
+  if (!hasFormDrafts(root)) return true;
+  return confirm("Hay datos cargados en un formulario. Se guardaron como borrador para no perderlos. Desea salir de esta pantalla?");
+}
+
 function reportPanel(title, rows) {
   return `
     <section class="panel">
@@ -1765,6 +1888,7 @@ function handleClick(event) {
   if (!button) return;
 
   if (button.dataset.nav) {
+    if (!confirmLeavingDrafts()) return;
     ui.view = button.dataset.nav;
     ui.menuOpen = false;
     render();
@@ -1902,11 +2026,17 @@ function handleClick(event) {
   }
 
   if (action === "close-modal") {
+    if (!confirmLeavingDrafts(button.closest("dialog"))) return;
     button.closest("dialog")?.close();
   }
 }
 
 function handleInput(event) {
+  const form = event.target.closest("form[data-form]");
+  if (form) {
+    saveFormDraft(form);
+  }
+
   if (event.target.matches("[data-search]")) {
     ui.search = event.target.value;
     render();
@@ -1914,10 +2044,21 @@ function handleInput(event) {
 }
 
 function handleChange(event) {
+  const form = event.target.closest("form[data-form]");
+  if (form) {
+    saveFormDraft(form);
+  }
+
   if (event.target.matches("[data-restore-file]")) {
     const file = event.target.files?.[0];
     if (file) restoreBackup(file);
   }
+}
+
+function handleBeforeUnload(event) {
+  if (!hasFormDrafts()) return;
+  event.preventDefault();
+  event.returnValue = "";
 }
 
 function handleSubmit(event) {
@@ -1925,6 +2066,8 @@ function handleSubmit(event) {
   if (!form) return;
   event.preventDefault();
   const data = Object.fromEntries(new FormData(form).entries());
+  const draftKey = formDraftKey(form);
+  clearFormDraftByKey(draftKey);
   const handlers = {
     member: submitMember,
     debt: submitDebt,
@@ -1938,7 +2081,10 @@ function handleSubmit(event) {
     cash: submitCash,
     settings: submitSettings
   };
-  handlers[form.dataset.form]?.(data, form);
+  const result = handlers[form.dataset.form]?.(data, form);
+  if (result === false) {
+    saveFormDraft(form);
+  }
 }
 
 function submitMember(data) {
@@ -2013,7 +2159,7 @@ function submitCalculator(data) {
 function submitLoan(data) {
   if (!data.memberId) {
     alert("Debe seleccionar un socio.");
-    return;
+    return false;
   }
   const amount = num(data.amount);
   const member = memberById(data.memberId);
@@ -2056,10 +2202,10 @@ function submitPayment(data, form) {
   const item = kind === "loan"
     ? state.memberLoans.find((loan) => loan.id === data.itemId)
     : state.committeeDebts.find((debt) => debt.id === data.itemId);
-  if (!item) return;
-  if (kind === "loan" && isLoanArchived(item)) return;
+  if (!item) return false;
+  if (kind === "loan" && isLoanArchived(item)) return false;
   const installment = item.installments.find((row) => row.id === data.installmentId);
-  if (!installment) return;
+  if (!installment) return false;
   const amount = Math.min(num(data.amount), Math.max(0, installment.total - installment.paidAmount));
   installment.paidAmount = roundGs(installment.paidAmount + amount);
   item.payments.push({ id: uid("pag"), date: data.date || todayISO(), amount, note: clean(data.note), installmentId: installment.id });
@@ -2147,11 +2293,11 @@ function submitProduct(data) {
 
 function submitSale(data) {
   const product = state.products.find((item) => item.id === data.productId);
-  if (!product) return;
+  if (!product) return false;
   const quantity = num(data.quantity);
   if (quantity > Number(product.stock)) {
     alert("No hay stock suficiente para esta venta.");
-    return;
+    return false;
   }
   const member = memberById(data.memberId);
   const unitPrice = num(data.unitPrice) || Number(product.salePrice);
@@ -2353,6 +2499,7 @@ function openModal(title, content) {
   document.body.append(dialog);
   dialog.addEventListener("close", () => dialog.remove(), { once: true });
   dialog.showModal();
+  restoreFormDrafts(dialog);
 }
 
 function markServicePaid(id) {
