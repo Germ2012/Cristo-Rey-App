@@ -33,7 +33,8 @@ const ui = {
   search: "",
   calendarRange: "week",
   calculatorResult: null,
-  calculatorInputs: null
+  calculatorInputs: null,
+  menuOpen: false
 };
 
 const frequencyMonths = {
@@ -397,13 +398,11 @@ function render() {
   document.title = `${current.label} - Cristo Rey`;
   const summaries = getGlobalSummary();
   document.getElementById("app").innerHTML = `
-    <aside class="sidebar">
-      ${renderSidebar(current, summaries)}
-    </aside>
     <main class="main">
       ${renderTopbar(current, summaries)}
       <section class="view">${renderView()}</section>
     </main>
+    ${renderFloatingMenu(current, summaries)}
   `;
 }
 
@@ -443,10 +442,13 @@ function renderSidebar(current, summaries) {
 function renderTopbar(current, summaries) {
   return `
     <header class="topbar">
-      <div class="topbar__title">
-        <span class="eyebrow">${current.group}</span>
-        <h1>${current.label}</h1>
-        <p>${current.subtitle}</p>
+      <div class="topbar__identity">
+        <img src="assets/icon.svg" alt="">
+        <div class="topbar__title">
+          <span class="eyebrow">${current.group}</span>
+          <h1>${current.label}</h1>
+          <p>${current.subtitle}</p>
+        </div>
       </div>
       <div class="topbar__tools">
         <div class="status-strip">
@@ -454,17 +456,56 @@ function renderTopbar(current, summaries) {
           <span class="status status--info">${activeMembers().length} socios</span>
           <span class="status ${summaries.overdueTotal > 0 ? "status--overdue" : "status--paid"}">${money(summaries.overdueTotal)} en mora</span>
         </div>
-        <div class="quick-actions">
-          ${quickActions.map((action) => `<button class="${action.style}" type="button" data-nav="${action.target}">${action.label}</button>`).join("")}
-        </div>
       </div>
     </header>
   `;
 }
 
+function renderFloatingMenu(current, summaries) {
+  return `
+    <div class="floating-menu ${ui.menuOpen ? "is-open" : ""}">
+      <button class="floating-menu__scrim" type="button" data-action="close-menu" aria-label="Cerrar menu"></button>
+      <aside class="floating-menu__panel" aria-label="Menu de modulos">
+        <div class="floating-menu__header">
+          <div>
+            <span class="eyebrow">Menu</span>
+            <h2>${escapeHtml(state.settings.committeeName)}</h2>
+            <p>${money(summaries.cashBalance)} en caja · ${summaries.overdueMembersCount} socios con mora</p>
+          </div>
+          <button class="icon-button" type="button" data-action="close-menu" aria-label="Cerrar">x</button>
+        </div>
+        <div class="floating-menu__actions">
+          ${quickActions.map((action) => `<button class="${action.style}" type="button" data-nav="${action.target}">${escapeHtml(action.label)}</button>`).join("")}
+        </div>
+        <nav class="floating-menu__groups" aria-label="Modulos">
+          ${viewGroups.map((group) => `
+            <section>
+              <span class="nav-group__label">${escapeHtml(group)}</span>
+              <div class="floating-menu__list">
+                ${views.filter((view) => view.group === group).map((view) => `
+                  <button type="button" class="${view.id === current.id ? "active" : ""}" data-nav="${view.id}">
+                    <span class="nav__icon">${escapeHtml(view.icon)}</span>
+                    <span>
+                      <strong>${escapeHtml(view.label)}</strong>
+                      <small>${escapeHtml(view.subtitle)}</small>
+                    </span>
+                  </button>
+                `).join("")}
+              </div>
+            </section>
+          `).join("")}
+        </nav>
+      </aside>
+      <button class="floating-menu__button" type="button" data-action="toggle-menu" aria-expanded="${ui.menuOpen ? "true" : "false"}">
+        <span>${ui.menuOpen ? "Cerrar" : "Menu"}</span>
+      </button>
+    </div>
+  `;
+}
+
 function renderView() {
   const renderers = {
-    dashboard: renderDashboard,
+    dashboard: renderHomeDashboard,
     socios: renderMembers,
     deuda: renderDebt,
     calculadora: renderCalculator,
@@ -570,6 +611,187 @@ function renderDashboardHero(summary, nextDebt) {
   `;
 }
 
+function renderHomeDashboard() {
+  const summary = getGlobalSummary();
+  const debt = state.committeeDebts[0];
+  const nextDebt = debt ? nextInstallment(debt.installments) : null;
+  const upcomingCollections = getCalendarEvents()
+    .filter((event) => event.kind === "loan" && daysBetween(todayISO(), event.date) >= 0)
+    .sort(byDate)
+    .slice(0, 5);
+  const upcomingPayments = getCalendarEvents()
+    .filter((event) => event.kind === "debt" && daysBetween(todayISO(), event.date) >= 0)
+    .sort(byDate)
+    .slice(0, 4);
+  const alerts = getPriorityAlerts(summary, nextDebt, upcomingCollections, upcomingPayments);
+
+  return `
+    ${renderPolishedHomeHero(summary, nextDebt)}
+    <section class="priority-board">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Prioridad</span>
+          <h2>Notificaciones importantes</h2>
+        </div>
+        <button class="ghost-button" type="button" data-nav="calendario">Ver agenda</button>
+      </div>
+      <div class="notification-grid">
+        ${alerts.map(renderAlertCard).join("")}
+      </div>
+    </section>
+
+    <section class="home-actions-panel">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Acceso rapido</span>
+          <h2>Operaciones frecuentes</h2>
+        </div>
+      </div>
+      <div class="home-action-grid">
+        ${homeActionCard("Cobranza", "Socios atrasados y registro de gestiones.", "morosos", "Revisar")}
+        ${homeActionCard("Nuevo prestamo", "Cargar credito interno con cronograma.", "prestamos", "Abrir")}
+        ${homeActionCard("Venta fiada", "Registrar productos vendidos a socios.", "productos", "Vender")}
+        ${homeActionCard("Caja", "Ingresos, egresos y saldo disponible.", "caja", "Registrar")}
+      </div>
+    </section>
+
+    <div class="grid grid--metrics compact-metrics">
+      ${metric("Caja disponible", money(summary.cashBalance), `${money(summary.monthIncome)} ingresos del mes`, summary.cashBalance >= 0 ? "green" : "red")}
+      ${metric("Total vencido", money(summary.overdueTotal), `${summary.overdueMembersCount} socios morosos`, summary.overdueTotal ? "red" : "green")}
+      ${metric("Saldo deuda general", money(summary.debtPending), nextDebt ? `${daysLabel(nextDebt.dueDate)} para proxima cuota` : "Sin cuotas pendientes", summary.debtPending > 0 ? "amber" : "green")}
+      ${metric("Margen estimado", money(summary.estimatedMargin), "Interes socios menos costo deuda", summary.estimatedMargin >= 0 ? "green" : "red")}
+    </div>
+
+    <div class="grid grid--two home-followup">
+      <section class="panel panel--quiet">
+        <div class="panel__header">
+          <div>
+            <h2>Proximas cuotas a cobrar</h2>
+            <p>Socios con vencimientos cercanos.</p>
+          </div>
+          <button class="ghost-button" type="button" data-nav="calendario">Ver calendario</button>
+        </div>
+        ${renderEventList(upcomingCollections, "No hay cuotas de socios proximas.")}
+      </section>
+
+      <section class="panel panel--quiet">
+        <div class="panel__header">
+          <div>
+            <h2>Proximas cuotas a pagar</h2>
+            <p>Compromisos de la deuda general.</p>
+          </div>
+          <button class="ghost-button" type="button" data-nav="deuda">Ver deuda</button>
+        </div>
+        ${renderEventList(upcomingPayments, "No hay pagos de deuda pendientes.")}
+      </section>
+    </div>
+  `;
+}
+
+function renderPolishedHomeHero(summary, nextDebt) {
+  return `
+    <section class="home-hero">
+      <div class="home-hero__copy">
+        <span class="eyebrow">Inicio operativo</span>
+        <h2>${escapeHtml(state.settings.committeeName)}</h2>
+        <p>Una portada simple para decidir que atender primero: caja, mora, proximos pagos y operaciones del dia.</p>
+        <div class="home-hero__stats">
+          ${miniKpi("Caja", money(summary.cashBalance), "Disponible")}
+          ${miniKpi("Mora", money(summary.overdueTotal), `${summary.overdueMembersCount} socios`)}
+          ${miniKpi("Prestamos", summary.activeLoans, "Activos")}
+        </div>
+      </div>
+      <div class="home-hero__next">
+        <span class="mini-label">Siguiente paso</span>
+        <strong>${summary.overdueTotal > 0 ? "Cobranza" : "Control diario"}</strong>
+        <p>${summary.overdueTotal > 0 ? `${money(summary.overdueTotal)} vencidos para revisar hoy.` : nextDebt ? `Proximo pago: ${formatDate(nextDebt.dueDate)} - ${money(nextDebt.total - nextDebt.paidAmount)}` : "Sin pagos generales pendientes."}</p>
+        <button class="button" type="button" data-nav="${summary.overdueTotal > 0 ? "morosos" : "calendario"}">${summary.overdueTotal > 0 ? "Revisar mora" : "Ver agenda"}</button>
+      </div>
+    </section>
+  `;
+}
+
+function getPriorityAlerts(summary, nextDebt, upcomingCollections, upcomingPayments) {
+  const stockLow = state.products.filter((product) => Number(product.stock) <= Number(product.minStock)).length;
+  const nextCollection = upcomingCollections[0];
+  const nextPayment = upcomingPayments[0] || nextDebt;
+  const alerts = [];
+
+  if (summary.overdueTotal > 0) {
+    alerts.push({
+      tone: "red",
+      title: "Cobranza pendiente",
+      detail: `${summary.overdueMembersCount} socio(s) con ${money(summary.overdueTotal)} vencidos.`,
+      target: "morosos",
+      action: "Gestionar"
+    });
+  }
+
+  if (nextPayment) {
+    const amount = nextPayment.amount || Math.max(0, nextPayment.total - nextPayment.paidAmount);
+    const dueDate = nextPayment.date || nextPayment.dueDate;
+    alerts.push({
+      tone: daysBetween(todayISO(), dueDate) <= 7 ? "amber" : "blue",
+      title: "Pago general",
+      detail: `${money(amount)} vence ${formatDate(dueDate)}.`,
+      target: "deuda",
+      action: "Ver deuda"
+    });
+  }
+
+  if (nextCollection) {
+    alerts.push({
+      tone: "blue",
+      title: "Cobro proximo",
+      detail: `${nextCollection.title} - ${money(nextCollection.amount)} ${daysLabel(nextCollection.date)}.`,
+      target: "calendario",
+      action: "Agenda"
+    });
+  }
+
+  if (stockLow > 0) {
+    alerts.push({
+      tone: "amber",
+      title: "Stock bajo",
+      detail: `${stockLow} producto(s) necesitan reposicion.`,
+      target: "productos",
+      action: "Revisar"
+    });
+  }
+
+  if (!alerts.length) {
+    alerts.push({
+      tone: "green",
+      title: "Todo bajo control",
+      detail: "No hay alertas criticas para este momento.",
+      target: "reportes",
+      action: "Reportes"
+    });
+  }
+
+  return alerts.slice(0, 4);
+}
+
+function renderAlertCard(alert) {
+  return `
+    <article class="notification-card tone-${escapeAttr(alert.tone)}">
+      <span>${escapeHtml(alert.title)}</span>
+      <p>${escapeHtml(alert.detail)}</p>
+      <button class="ghost-button" type="button" data-nav="${escapeAttr(alert.target)}">${escapeHtml(alert.action)}</button>
+    </article>
+  `;
+}
+
+function homeActionCard(title, detail, target, action) {
+  return `
+    <button class="home-action-card" type="button" data-nav="${escapeAttr(target)}">
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(detail)}</span>
+      <em>${escapeHtml(action)}</em>
+    </button>
+  `;
+}
+
 function renderMembers() {
   const filtered = activeMembers().filter((member) => {
     const text = `${member.name} ${member.document} ${member.phone}`.toLowerCase();
@@ -588,13 +810,7 @@ function renderMembers() {
       ${insightCard("Seleccionado", selected?.name || "Sin socio", "Detalle a la derecha")}
     </div>
 
-    <section class="panel">
-      <div class="panel__header">
-        <div>
-          <h2>Registrar socio</h2>
-          <p>Datos personales, estado y referencia familiar.</p>
-        </div>
-      </div>
+    ${collapsiblePanel("Registrar socio", "Datos personales, estado y referencia familiar.", `
       <form class="form-grid" data-form="member">
         ${field("Nombre completo", "name", "text", "", true)}
         ${field("Número de cédula", "document", "text", "", true)}
@@ -616,7 +832,7 @@ function renderMembers() {
           <button class="button" type="submit">Crear socio</button>
         </div>
       </form>
-    </section>
+    `)}
 
     <div class="grid grid--two">
       <section class="panel">
@@ -658,8 +874,10 @@ function renderMemberRow(member) {
       </div>
       <div class="toolbar">
         <span class="status ${hasOverdue ? "status--overdue" : "status--paid"}">${money(totalDebt)}</span>
-        <button class="ghost-button" type="button" data-action="select-member" data-id="${member.id}">Ver</button>
-        <button class="danger-button" type="button" data-action="member-delete-modal" data-member-id="${member.id}">Eliminar</button>
+        ${actionMenu([
+          menuButton("ghost-button", "Ver detalle", `data-action="select-member" data-id="${member.id}"`),
+          menuButton("danger-button", "Eliminar socio", `data-action="member-delete-modal" data-member-id="${member.id}"`)
+        ])}
       </div>
     </div>
   `;
@@ -680,8 +898,10 @@ function renderMemberDetail(member) {
         <p class="list-item__meta">${escapeHtml(member.reference || "Sin referencia familiar")}</p>
         <span class="status ${member.status === "activo" ? "status--paid" : "status--soon"}">${escapeHtml(member.status)}</span>
         <div class="toolbar person-card__actions">
-          <button class="ghost-button" type="button" data-action="member-debt-modal" data-member-id="${member.id}">Eliminar deuda</button>
-          <button class="danger-button" type="button" data-action="member-delete-modal" data-member-id="${member.id}">Eliminar socio</button>
+          ${actionMenu([
+            menuButton("ghost-button", "Eliminar deuda", `data-action="member-debt-modal" data-member-id="${member.id}"`),
+            menuButton("danger-button", "Eliminar socio", `data-action="member-delete-modal" data-member-id="${member.id}"`)
+          ], "Mas opciones")}
         </div>
       </div>
       <div class="grid">
@@ -729,13 +949,7 @@ function renderDebt() {
 
     ${debts.length ? debts.map(renderDebtDetail).join("") : empty("Aún no se cargó una deuda general.")}
 
-    <section class="panel">
-      <div class="panel__header">
-        <div>
-          <h2>Nueva deuda general</h2>
-          <p>Cargue las condiciones del préstamo grande tomado por el comité.</p>
-        </div>
-      </div>
+    ${collapsiblePanel("Nueva deuda general", "Cargue las condiciones del prestamo grande tomado por el comite.", `
       <form class="form-grid" data-form="debt">
         ${field("Entidad financiera", "entity", "text", "", true)}
         ${field("Monto recibido", "amount", "number", "", true)}
@@ -756,7 +970,7 @@ function renderDebt() {
           <button class="button" type="submit">Crear deuda general</button>
         </div>
       </form>
-    </section>
+    `)}
   `;
 }
 
@@ -774,7 +988,9 @@ function renderDebtDetail(debt) {
         </div>
         <div class="toolbar">
           <span class="status ${pending > 0 ? "status--soon" : "status--paid"}">${pending > 0 ? money(pending) : "Pagado"}</span>
-          <button class="danger-button" type="button" data-action="debt-delete-modal" data-debt-id="${debt.id}">Eliminar</button>
+          ${actionMenu([
+            menuButton("danger-button", "Eliminar registro", `data-action="debt-delete-modal" data-debt-id="${debt.id}"`)
+          ])}
         </div>
       </div>
       <div class="kpi-row">
@@ -852,13 +1068,7 @@ function renderLoans() {
       ${insightCard("Historial", state.memberLoans.length, "Prestamos registrados")}
     </div>
 
-    <section class="panel">
-      <div class="panel__header">
-        <div>
-          <h2>Nuevo préstamo a socio</h2>
-          <p>Simule y apruebe créditos internos con la tasa definida por el comité.</p>
-        </div>
-      </div>
+    ${collapsiblePanel("Nuevo prestamo a socio", "Simule y apruebe creditos internos con la tasa definida por el comite.", `
       <form class="form-grid" data-form="loan">
         ${selectField("Socio beneficiario", "memberId", activeMembers().map((member) => [member.id, member.name]))}
         ${field("Monto prestado", "amount", "number", "", true)}
@@ -879,7 +1089,7 @@ function renderLoans() {
           <button class="button" type="submit">Aprobar préstamo</button>
         </div>
       </form>
-    </section>
+    `)}
     <section class="panel">
       <div class="panel__header">
         <div>
@@ -908,8 +1118,10 @@ function renderLoanDetail(loan) {
       </div>
       <div class="toolbar">
         <span class="status ${archived ? "status--info" : overdue ? "status--overdue" : "status--paid"}">${overdue ? "En mora" : loanStatus(loan)}</span>
-        <button class="ghost-button" type="button" data-action="toggle-loan" data-id="${loan.id}">${ui.selectedLoanId === loan.id ? "Ocultar" : "Detalle"}</button>
-        ${!archived && rawPending > 0 ? `<button class="danger-button" type="button" data-action="loan-archive-modal" data-loan-id="${loan.id}">Eliminar deuda</button>` : ""}
+        ${actionMenu([
+          menuButton("ghost-button", ui.selectedLoanId === loan.id ? "Ocultar detalle" : "Ver detalle", `data-action="toggle-loan" data-id="${loan.id}"`),
+          !archived && rawPending > 0 ? menuButton("danger-button", "Eliminar deuda", `data-action="loan-archive-modal" data-loan-id="${loan.id}"`) : ""
+        ])}
       </div>
     </div>
     ${ui.selectedLoanId === loan.id ? `
@@ -994,8 +1206,10 @@ function renderOverdue() {
                   <td>${Math.max(0, daysBetween(installment.dueDate, todayISO()))}</td>
                   <td>${lastPayment ? `${formatDate(lastPayment.date)} · ${money(lastPayment.amount)}` : "Sin pagos"}</td>
                   <td class="toolbar">
-                    <button class="ghost-button" type="button" data-action="loan-payment" data-loan-id="${loan.id}" data-installment-id="${installment.id}">Registrar pago</button>
-                    <button class="ghost-button" type="button" data-action="collection-modal" data-loan-id="${loan.id}" data-member-id="${loan.memberId}">Gestión</button>
+                    ${actionMenu([
+                      menuButton("ghost-button", "Registrar pago", `data-action="loan-payment" data-loan-id="${loan.id}" data-installment-id="${installment.id}"`),
+                      menuButton("ghost-button", "Gestion", `data-action="collection-modal" data-loan-id="${loan.id}" data-member-id="${loan.memberId}"`)
+                    ])}
                   </td>
                 </tr>`;
               }).join("")}
@@ -1043,13 +1257,7 @@ function renderMachinery() {
       ${insightCard("Pendiente", money(pendingServices), "Por cobrar")}
     </div>
 
-    <section class="panel">
-      <div class="panel__header">
-        <div>
-          <h2>Registrar servicio de maquinaria</h2>
-          <p>Controle horas, hectáreas, combustible, mantenimiento y cobro.</p>
-        </div>
-      </div>
+    ${collapsiblePanel("Registrar servicio de maquinaria", "Controle horas, hectareas, combustible, mantenimiento y cobro.", `
       <form class="form-grid" data-form="machinery">
         ${selectField("Socio o cliente", "memberId", [["", "Cliente externo"], ...activeMembers().map((member) => [member.id, member.name])])}
         ${field("Nombre cliente externo", "clientName", "text")}
@@ -1073,7 +1281,7 @@ function renderMachinery() {
           <button class="button" type="submit">Registrar servicio</button>
         </div>
       </form>
-    </section>
+    `)}
     <section class="panel">
       <div class="panel__header">
         <div>
@@ -1096,7 +1304,9 @@ function renderMachinery() {
                   <td>${money(service.total - service.fuelCost - service.maintenanceCost)}</td>
                   <td class="toolbar">
                     <span class="status ${archived ? "status--info" : service.paymentStatus === "pagado" ? "status--paid" : "status--soon"}">${archived ? "deuda eliminada" : escapeHtml(service.paymentStatus)}</span>
-                    ${!archived && service.paymentStatus !== "pagado" ? `<button class="ghost-button" type="button" data-action="pay-service" data-id="${service.id}">Cobrar</button>` : ""}
+                    ${!archived && service.paymentStatus !== "pagado" ? actionMenu([
+                      menuButton("ghost-button", "Cobrar", `data-action="pay-service" data-id="${service.id}"`)
+                    ]) : ""}
                   </td>
                 </tr>`;
               }).join("")}
@@ -1121,13 +1331,7 @@ function renderProducts() {
     </div>
 
     <div class="grid grid--two">
-      <section class="panel">
-        <div class="panel__header">
-          <div>
-            <h2>Registrar producto</h2>
-            <p>Stock, precios y alerta de mínimo.</p>
-          </div>
-        </div>
+      ${collapsiblePanel("Registrar producto", "Stock, precios y alerta de minimo.", `
         <form class="form-grid" data-form="product">
           ${field("Nombre", "name", "text", "", true)}
           ${selectField("Categoría", "category", [["Semillas", "Semillas"], ["Fertilizantes", "Fertilizantes"], ["Defensivos agrícolas", "Defensivos agrícolas"], ["Herramientas", "Herramientas"], ["Balanceados", "Balanceados"], ["Productos del comité", "Productos del comité"], ["Otros insumos", "Otros insumos"]])}
@@ -1142,14 +1346,8 @@ function renderProducts() {
             <button class="button" type="submit">Guardar producto</button>
           </div>
         </form>
-      </section>
-      <section class="panel">
-        <div class="panel__header">
-          <div>
-            <h2>Registrar venta</h2>
-            <p>Ventas al contado o fiadas a socios.</p>
-          </div>
-        </div>
+      `)}
+      ${collapsiblePanel("Registrar venta", "Ventas al contado o fiadas a socios.", `
         <form class="form-grid" data-form="sale">
           ${selectField("Producto", "productId", state.products.map((product) => [product.id, `${product.name} (${product.stock} ${product.unit})`]))}
           ${selectField("Socio", "memberId", [["", "Cliente externo"], ...activeMembers().map((member) => [member.id, member.name])])}
@@ -1164,7 +1362,7 @@ function renderProducts() {
             <button class="button" type="submit">Registrar venta</button>
           </div>
         </form>
-      </section>
+      `)}
     </div>
     <section class="panel">
       <div class="panel__header">
@@ -1211,7 +1409,9 @@ function renderProducts() {
                   <td>${money(sale.total)}</td>
                   <td class="toolbar">
                     <span class="status ${archived ? "status--info" : sale.status === "pagado" ? "status--paid" : "status--soon"}">${archived ? "deuda eliminada" : escapeHtml(sale.status)}</span>
-                    ${!archived && sale.status !== "pagado" ? `<button class="ghost-button" type="button" data-action="pay-sale" data-id="${sale.id}">Cobrar</button>` : ""}
+                    ${!archived && sale.status !== "pagado" ? actionMenu([
+                      menuButton("ghost-button", "Cobrar", `data-action="pay-sale" data-id="${sale.id}"`)
+                    ]) : ""}
                   </td>
                 </tr>`;
               }).join("")}
@@ -1236,13 +1436,7 @@ function renderCash() {
       ${insightCard("Movimientos", state.cashMovements.length, "Registros")}
     </div>
 
-    <section class="panel">
-      <div class="panel__header">
-        <div>
-          <h2>Movimiento de caja</h2>
-          <p>Registrar ingresos, egresos y asociarlos a operaciones.</p>
-        </div>
-      </div>
+    ${collapsiblePanel("Movimiento de caja", "Registrar ingresos, egresos y asociarlos a operaciones.", `
       <form class="form-grid" data-form="cash">
         ${field("Fecha", "date", "date", todayISO())}
         ${selectField("Tipo", "type", [["ingreso", "Ingreso"], ["egreso", "Egreso"]])}
@@ -1271,7 +1465,7 @@ function renderCash() {
           <button class="button" type="submit">Registrar movimiento</button>
         </div>
       </form>
-    </section>
+    `)}
     <section class="panel">
       <div class="panel__header">
         <div>
@@ -1443,6 +1637,36 @@ function insightCard(label, value, hint) {
   `;
 }
 
+function collapsiblePanel(title, description, content, open = false) {
+  return `
+    <details class="panel fold-panel" ${open ? "open" : ""}>
+      <summary class="fold-panel__summary">
+        <span>
+          <strong>${escapeHtml(title)}</strong>
+          <small>${escapeHtml(description)}</small>
+        </span>
+        <em>Desplegar</em>
+      </summary>
+      <div class="fold-panel__content">${content}</div>
+    </details>
+  `;
+}
+
+function actionMenu(items, label = "Acciones") {
+  return `
+    <details class="action-menu">
+      <summary>${escapeHtml(label)}</summary>
+      <div class="action-menu__panel">
+        ${items.filter(Boolean).join("")}
+      </div>
+    </details>
+  `;
+}
+
+function menuButton(className, text, attrs = "") {
+  return `<button class="${escapeAttr(className)}" type="button" ${attrs}>${escapeHtml(text)}</button>`;
+}
+
 function reportPanel(title, rows) {
   return `
     <section class="panel">
@@ -1542,12 +1766,25 @@ function handleClick(event) {
 
   if (button.dataset.nav) {
     ui.view = button.dataset.nav;
+    ui.menuOpen = false;
     render();
     return;
   }
 
   const action = button.dataset.action;
   if (!action) return;
+
+  if (action === "toggle-menu") {
+    ui.menuOpen = !ui.menuOpen;
+    render();
+    return;
+  }
+
+  if (action === "close-menu") {
+    ui.menuOpen = false;
+    render();
+    return;
+  }
 
   if (action === "select-member") {
     ui.selectedMemberId = button.dataset.id;
