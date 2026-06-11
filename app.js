@@ -3,7 +3,7 @@ const FORM_DRAFT_KEY = "cristo_rey_form_drafts_v1";
 const SECURITY_KEY = "cristo_rey_security_v1";
 const SECURITY_SESSION_KEY = "cristo_rey_security_session_v1";
 const MASTER_PIN = "74642012";
-const ASSET_VERSION = 23;
+const ASSET_VERSION = 27;
 
 const views = [
   { id: "dashboard", label: "Inicio", shortLabel: "Inicio", icon: "home", tone: "green", group: "Principal", subtitle: "Resumen financiero, alertas y acciones frecuentes." },
@@ -2692,8 +2692,8 @@ function handleClick(event) {
     sharePendingMemberImage();
   }
 
-  if (action === "download-member-summary-image") {
-    downloadPendingMemberImage();
+  if (action === "download-member-summary-image" || action === "save-member-summary-image") {
+    savePendingMemberImages();
   }
 
   if (action === "confirm-restore") {
@@ -3333,26 +3333,37 @@ async function openMemberShareSummary(memberId) {
   }
 
   try {
-    const dataUrl = await createMemberSummaryImage(member);
-    const filename = memberShareFilename(member);
-    pendingMemberShare = { filename, dataUrl, memberName: member.name };
+    const images = await createMemberSummaryImages(member);
+    pendingMemberShare = { images, memberName: member.name };
+    const pagesLabel = images.length > 1 ? `${images.length} imagenes generadas para cubrir todas las cuotas.` : "1 imagen generada.";
+    const androidLabel = images.length > 1
+      ? "En Android podra guardarlas en Galeria o enviarlas por WhatsApp desde el panel nativo."
+      : "En Android podra guardarla en Galeria o enviarla por WhatsApp desde el panel nativo.";
+    const shareLabel = images.length > 1 ? "Compartir imagenes" : "Compartir imagen";
+    const saveLabel = images.length > 1 ? "Guardar PNGs" : "Guardar PNG";
+    const previewImages = images.map((image) => `
+      <figure class="member-share-preview-page">
+        <img class="member-share-preview" src="${escapeAttr(image.dataUrl)}" alt="Resumen de cuotas de ${escapeAttr(member.name)} - pagina ${image.page}">
+        <figcaption>Pagina ${image.page} de ${image.pages}</figcaption>
+      </figure>
+    `).join("");
     const dialog = openModal("Resumen de cuotas para compartir", `
       <div class="member-share-preview-shell">
         <div class="notice">
-          Revise la imagen antes de compartir. En Android podrá enviarla por WhatsApp u otra aplicación desde el panel nativo.
+          Revise la imagen antes de compartir. ${escapeHtml(pagesLabel)} ${escapeHtml(androidLabel)}
         </div>
         <div class="member-share-preview-frame">
-          <img class="member-share-preview" src="${escapeAttr(dataUrl)}" alt="Resumen de cuotas de ${escapeAttr(member.name)}">
+          ${previewImages}
         </div>
         <div class="toolbar member-share-preview-actions">
-          <button class="button" type="button" data-action="share-member-summary-image">${renderIcon("share")} Compartir imagen</button>
-          <button class="ghost-button" type="button" data-action="download-member-summary-image">${renderIcon("download")} Descargar PNG</button>
+          <button class="button" type="button" data-action="share-member-summary-image">${renderIcon("share")} ${shareLabel}</button>
+          <button class="ghost-button" type="button" data-action="save-member-summary-image">${renderIcon("download")} ${saveLabel}</button>
           <button class="ghost-button" type="button" data-action="close-modal">Cerrar</button>
         </div>
       </div>
     `, { wide: true });
     dialog?.addEventListener("close", () => {
-      if (pendingMemberShare?.filename === filename) pendingMemberShare = null;
+      if (pendingMemberShare?.memberName === member.name) pendingMemberShare = null;
     }, { once: true });
   } catch (error) {
     console.error(error);
@@ -3362,21 +3373,28 @@ async function openMemberShareSummary(memberId) {
 
 async function sharePendingMemberImage() {
   if (!pendingMemberShare) return;
-  const { filename, dataUrl, memberName } = pendingMemberShare;
+  const { images, memberName } = pendingMemberShare;
+  if (!images?.length) return;
 
-  if (window.CristoReyAndroid?.shareImage) {
-    window.CristoReyAndroid.shareImage(filename, dataUrl);
+  if (images.length > 1 && window.CristoReyAndroid?.shareImages) {
+    window.CristoReyAndroid.shareImages(JSON.stringify(images));
+    return;
+  }
+
+  if (images.length === 1 && window.CristoReyAndroid?.shareImage) {
+    window.CristoReyAndroid.shareImage(images[0].filename, images[0].dataUrl);
     return;
   }
 
   try {
-    const blob = dataUrlToBlob(dataUrl);
-    const file = typeof File !== "undefined" ? new File([blob], filename, { type: "image/png" }) : null;
-    const sharePayload = file
-      ? { files: [file], title: "Resumen de cuotas", text: `Resumen de cuotas de ${memberName}` }
+    const files = typeof File !== "undefined"
+      ? images.map((image) => new File([dataUrlToBlob(image.dataUrl)], image.filename, { type: "image/png" }))
+      : null;
+    const sharePayload = files?.length
+      ? { files, title: "Resumen de cuotas", text: `Resumen de cuotas de ${memberName}` }
       : null;
 
-    if (sharePayload && navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+    if (sharePayload && navigator.share && (!navigator.canShare || navigator.canShare({ files }))) {
       await navigator.share(sharePayload);
       return;
     }
@@ -3385,18 +3403,39 @@ async function sharePendingMemberImage() {
     console.warn(error);
   }
 
-  downloadPendingMemberImage();
-  alert("Este navegador no permite compartir la imagen directamente. Se descargó el PNG para enviarlo manualmente.");
+  savePendingMemberImages();
+  alert("Este navegador no permite compartir la imagen directamente. Se guardaron los PNG para enviarlos manualmente.");
 }
 
 function downloadPendingMemberImage() {
+  savePendingMemberImages();
+}
+
+function savePendingMemberImages() {
   if (!pendingMemberShare) return;
-  const link = document.createElement("a");
-  link.href = pendingMemberShare.dataUrl;
-  link.download = pendingMemberShare.filename;
-  document.body.append(link);
-  link.click();
-  link.remove();
+  const { images } = pendingMemberShare;
+  if (!images?.length) return;
+
+  if (images.length > 1 && window.CristoReyAndroid?.saveImages) {
+    window.CristoReyAndroid.saveImages(JSON.stringify(images));
+    return;
+  }
+
+  if (images.length === 1 && window.CristoReyAndroid?.saveImage) {
+    window.CristoReyAndroid.saveImage(images[0].filename, images[0].dataUrl);
+    return;
+  }
+
+  images.forEach((image, index) => {
+    setTimeout(() => {
+      const link = document.createElement("a");
+      link.href = image.dataUrl;
+      link.download = image.filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+    }, index * 180);
+  });
 }
 
 function dataUrlToBlob(dataUrl) {
@@ -3408,12 +3447,33 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([bytes], { type: mime });
 }
 
-async function createMemberSummaryImage(member) {
+async function createMemberSummaryImages(member) {
   const summary = getMemberInstallmentSummary(member);
-  const visibleRows = summary.pendingRows.slice(0, 12);
-  const extraRows = Math.max(0, summary.pendingRows.length - visibleRows.length);
+  const rowsPerImage = 12;
+  const rowGroups = summary.pendingRows.length
+    ? chunkArray(summary.pendingRows, rowsPerImage)
+    : [[]];
+  const pageCount = rowGroups.length;
+  const images = [];
+
+  for (let index = 0; index < rowGroups.length; index += 1) {
+    const page = index + 1;
+    images.push({
+      filename: memberShareFilename(member, page, pageCount),
+      dataUrl: await createMemberSummaryImage(member, summary, rowGroups[index], page, pageCount),
+      page,
+      pages: pageCount
+    });
+  }
+
+  return images;
+}
+
+async function createMemberSummaryImage(member, summary, visibleRows, pageNumber = 1, pageCount = 1) {
   const rowHeight = 64;
-  const height = Math.max(1180, 650 + visibleRows.length * rowHeight + (extraRows ? 48 : 0));
+  const tableY = 668;
+  const tableEndY = tableY + 100 + visibleRows.length * rowHeight;
+  const height = Math.max(1180, tableEndY + 144);
   const width = 1080;
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -3455,6 +3515,14 @@ async function createMemberSummaryImage(member) {
     color: "rgba(255,255,255,0.78)",
     font: "500 20px Arial"
   });
+  if (pageCount > 1) {
+    drawRoundRect(ctx, 840, 34, 196, 42, 21, "rgba(255,255,255,0.18)", "rgba(255,255,255,0.26)");
+    drawText(ctx, `Pagina ${pageNumber}/${pageCount}`, 858, 61, 160, 20, {
+      color: "#ffffff",
+      font: "800 18px Arial",
+      align: "center"
+    });
+  }
 
   drawRoundRect(ctx, 44, 170, 992, 210, 18, "#ffffff", "rgba(18, 32, 25, 0.12)");
   drawText(ctx, member.name, 74, 224, 620, 40, { color: "#122019", font: "800 38px Arial" });
@@ -3495,8 +3563,14 @@ async function createMemberSummaryImage(member) {
     align: "right"
   });
 
-  const tableY = 668;
   drawText(ctx, "Detalle de cuotas pendientes", 44, tableY, 660, 32, { color: "#122019", font: "800 30px Arial" });
+  if (pageCount > 1) {
+    drawText(ctx, `Pagina ${pageNumber} de ${pageCount}`, 752, tableY, 284, 24, {
+      color: "#52606d",
+      font: "800 20px Arial",
+      align: "right"
+    });
+  }
   drawText(ctx, "Cuota", 64, tableY + 58, 120, 22, { color: "#68766d", font: "800 18px Arial" });
   drawText(ctx, "Vencimiento", 204, tableY + 58, 190, 22, { color: "#68766d", font: "800 18px Arial" });
   drawText(ctx, "Concepto", 414, tableY + 58, 310, 22, { color: "#68766d", font: "800 18px Arial" });
@@ -3522,16 +3596,8 @@ async function createMemberSummaryImage(member) {
     drawStatusBadge(ctx, row.status, 924, y + 15);
   });
 
-  if (extraRows) {
-    const y = tableY + 86 + visibleRows.length * rowHeight;
-    drawText(ctx, `+ ${extraRows} cuota(s) pendiente(s) más en el historial del socio.`, 64, y + 30, 940, 24, {
-      color: "#52606d",
-      font: "700 20px Arial"
-    });
-  }
-
   const footerY = height - 72;
-  drawText(ctx, "Comité Cristo Rey · Resumen informativo generado por la app", 44, footerY, 700, 24, {
+  drawText(ctx, "Comite Cristo Rey - Resumen informativo generado por la app", 44, footerY, 700, 24, {
     color: "#52606d",
     font: "600 20px Arial"
   });
@@ -3577,8 +3643,9 @@ function getMemberInstallmentSummary(member) {
   };
 }
 
-function memberShareFilename(member) {
-  return `resumen_cuotas_${slugify(member.name)}_${todayISO()}.png`;
+function memberShareFilename(member, pageNumber = 1, pageCount = 1) {
+  const suffix = pageCount > 1 ? `_pagina_${pageNumber}_de_${pageCount}` : "";
+  return `resumen_cuotas_${slugify(member.name)}_${todayISO()}${suffix}.png`;
 }
 
 function loadCanvasImage(src) {
@@ -3801,8 +3868,11 @@ function buildLoanAgreementHtml(loan, member) {
   <meta charset="utf-8">
   <title>Compromiso de pago - ${escapeHtml(member.name)}</title>
   <style>
-    @page { size: A4; margin: 16mm 15mm; }
+    @page { size: A4; margin: 14mm 13mm; }
     * { box-sizing: border-box; }
+    html {
+      background: #eef2f7;
+    }
     body {
       margin: 0;
       color: #111111;
@@ -3905,6 +3975,7 @@ function buildLoanAgreementHtml(loan, member) {
       text-transform: uppercase;
       font-size: 7.7pt;
     }
+    thead { display: table-header-group; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     .signature-section {
       break-inside: avoid;
@@ -3952,8 +4023,79 @@ function buildLoanAgreementHtml(loan, member) {
       font-family: Arial, sans-serif;
       font-size: 8.6pt;
     }
+    @media screen {
+      body {
+        width: min(100%, 794px);
+        min-height: 1123px;
+        margin: 18px auto;
+        padding: clamp(20px, 6vw, 42px) clamp(18px, 6vw, 48px);
+        background: #ffffff;
+        box-shadow: 0 22px 70px rgba(18, 32, 25, 0.22);
+      }
+    }
+    @media screen and (max-width: 560px) {
+      body {
+        font-size: 10.4pt;
+        line-height: 1.32;
+      }
+      h1 {
+        margin: 10px 0;
+        font-size: 13.2pt;
+        line-height: 1.16;
+      }
+      h2 {
+        margin: 12px 0 6px;
+        font-size: 8.9pt;
+      }
+      .doc-header {
+        grid-template-columns: 48px 1fr;
+        gap: 10px;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+      }
+      .doc-header img {
+        width: 46px;
+        height: 46px;
+      }
+      .doc-header strong {
+        font-size: 10.8pt;
+      }
+      .doc-header span {
+        font-size: 8.4pt;
+      }
+      .meta-grid {
+        grid-template-columns: 1fr;
+        gap: 5px;
+      }
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 5px 8px;
+        padding: 7px;
+      }
+      th, td {
+        padding: 4px;
+        font-size: 7.6pt;
+      }
+      th {
+        font-size: 6.9pt;
+      }
+      .signature-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+    }
     @media print {
-      body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      html { background: #ffffff; }
+      body {
+        width: auto;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+        box-shadow: none;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
     }
   </style>
 </head>
@@ -5043,6 +5185,14 @@ function sum(array, fieldName) {
 
 function sumArray(values) {
   return roundGs(values.reduce((acc, value) => acc + (Number(value) || 0), 0));
+}
+
+function chunkArray(array, size) {
+  const chunks = [];
+  for (let index = 0; index < array.length; index += size) {
+    chunks.push(array.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function percent(value, total) {

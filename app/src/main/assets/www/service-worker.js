@@ -1,9 +1,9 @@
-const CACHE_NAME = "cristo-rey-v23";
+const CACHE_NAME = "cristo-rey-v27";
 const APP_FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=23",
-  "./app.js?v=23",
+  "./styles.css?v=27",
+  "./app.js?v=27",
   "./manifest.webmanifest",
   "./assets/icon.png"
 ];

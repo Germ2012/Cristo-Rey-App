@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ContentValues;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -36,6 +37,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST_CODE = 1207;
@@ -43,6 +48,10 @@ public class MainActivity extends Activity {
     private WebView webView;
     private WebView printWebView;
     private ValueCallback<Uri[]> filePathCallback;
+    private int lastInsetLeft = 0;
+    private int lastInsetTop = 0;
+    private int lastInsetRight = 0;
+    private int lastInsetBottom = 0;
 
     @Override
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -180,8 +189,30 @@ public class MainActivity extends Activity {
                     initialRight + right,
                     initialBottom + bottom
             );
+            lastInsetLeft = left;
+            lastInsetTop = top;
+            lastInsetRight = right;
+            lastInsetBottom = bottom;
+            publishWindowInsetsToWebContent();
 
             return insets;
+        });
+    }
+
+    private void publishWindowInsetsToWebContent() {
+        if (webView == null) return;
+
+        String script = "(function(){"
+                + "var root=document.documentElement;"
+                + "root.style.setProperty('--android-safe-left','" + lastInsetLeft + "px');"
+                + "root.style.setProperty('--android-safe-top','" + lastInsetTop + "px');"
+                + "root.style.setProperty('--android-safe-right','" + lastInsetRight + "px');"
+                + "root.style.setProperty('--android-safe-bottom','" + lastInsetBottom + "px');"
+                + "})();";
+        webView.post(() -> {
+            if (webView != null) {
+                webView.evaluateJavascript(script, null);
+            }
         });
     }
 
@@ -246,6 +277,7 @@ public class MainActivity extends Activity {
         if (webView != null) {
             webView.onResume();
             webView.resumeTimers();
+            webView.requestApplyInsets();
         }
     }
 
@@ -267,6 +299,11 @@ public class MainActivity extends Activity {
     }
 
     private class AppWebViewClient extends WebViewClient {
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            publishWindowInsetsToWebContent();
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             return openExternallyWhenNeeded(request.getUrl());
@@ -360,6 +397,21 @@ public class MainActivity extends Activity {
         public void shareImage(String filename, String dataUrl) {
             runOnUiThread(() -> shareImageFromDataUrl(filename, dataUrl));
         }
+
+        @JavascriptInterface
+        public void shareImages(String payload) {
+            runOnUiThread(() -> shareImagesFromPayload(payload));
+        }
+
+        @JavascriptInterface
+        public void saveImage(String filename, String dataUrl) {
+            runOnUiThread(() -> saveImageFromDataUrl(filename, dataUrl));
+        }
+
+        @JavascriptInterface
+        public void saveImages(String payload) {
+            runOnUiThread(() -> saveImagesFromPayload(payload));
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -401,23 +453,116 @@ public class MainActivity extends Activity {
 
     private void shareImageFromDataUrl(String filename, String dataUrl) {
         try {
-            String safeName = filename.replaceAll("[^a-zA-Z0-9._-]", "_");
-            if (!safeName.toLowerCase().endsWith(".png")) {
-                safeName = safeName + ".png";
-            }
-
-            int commaIndex = dataUrl.indexOf(',');
-            String base64 = commaIndex >= 0 ? dataUrl.substring(commaIndex + 1) : dataUrl;
-            byte[] imageBytes = Base64.decode(base64, Base64.DEFAULT);
-            Uri imageUri = writeShareImage(safeName, imageBytes);
+            SharedImage image = decodeSharedImage(filename, dataUrl);
+            Uri imageUri = writeShareImage(image.filename, image.bytes);
 
             Intent shareIntent = new Intent(Intent.ACTION_SEND);
             shareIntent.setType("image/png");
             shareIntent.putExtra(Intent.EXTRA_STREAM, imageUri);
+            shareIntent.setClipData(ClipData.newUri(getContentResolver(), "Resumen de cuotas", imageUri));
             shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(Intent.createChooser(shareIntent, "Compartir resumen de cuotas"));
         } catch (Exception error) {
             Toast.makeText(this, "No se pudo compartir la imagen.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void shareImagesFromPayload(String payload) {
+        try {
+            ArrayList<SharedImage> images = decodeImagePayload(payload);
+            if (images.isEmpty()) throw new IOException("Sin imagenes para compartir.");
+            if (images.size() == 1) {
+                shareImageFromDataUrl(images.get(0).filename, "data:image/png;base64," + Base64.encodeToString(images.get(0).bytes, Base64.NO_WRAP));
+                return;
+            }
+
+            ArrayList<Uri> uris = new ArrayList<>();
+            for (SharedImage image : images) {
+                uris.add(writeShareImage(image.filename, image.bytes));
+            }
+
+            Intent shareIntent = new Intent(Intent.ACTION_SEND_MULTIPLE);
+            shareIntent.setType("image/png");
+            shareIntent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+            shareIntent.setClipData(buildImageClipData(uris));
+            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(shareIntent, "Compartir resumen de cuotas"));
+        } catch (Exception error) {
+            Toast.makeText(this, "No se pudieron compartir las imagenes.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void saveImageFromDataUrl(String filename, String dataUrl) {
+        try {
+            SharedImage image = decodeSharedImage(filename, dataUrl);
+            writeShareImage(image.filename, image.bytes);
+            Toast.makeText(this, "PNG guardado en Galeria > Cristo Rey.", Toast.LENGTH_LONG).show();
+        } catch (Exception error) {
+            Toast.makeText(this, "No se pudo guardar el PNG.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void saveImagesFromPayload(String payload) {
+        try {
+            ArrayList<SharedImage> images = decodeImagePayload(payload);
+            if (images.isEmpty()) throw new IOException("Sin imagenes para guardar.");
+            for (SharedImage image : images) {
+                writeShareImage(image.filename, image.bytes);
+            }
+            Toast.makeText(this, images.size() + " PNG guardados en Galeria > Cristo Rey.", Toast.LENGTH_LONG).show();
+        } catch (Exception error) {
+            Toast.makeText(this, "No se pudieron guardar los PNG.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private ClipData buildImageClipData(ArrayList<Uri> uris) {
+        ClipData clipData = new ClipData(
+                "Resumen de cuotas",
+                new String[]{"image/png"},
+                new ClipData.Item(uris.get(0))
+        );
+        for (int index = 1; index < uris.size(); index += 1) {
+            clipData.addItem(new ClipData.Item(uris.get(index)));
+        }
+        return clipData;
+    }
+
+    private ArrayList<SharedImage> decodeImagePayload(String payload) throws Exception {
+        JSONArray array = new JSONArray(payload);
+        ArrayList<SharedImage> images = new ArrayList<>();
+        for (int index = 0; index < array.length(); index += 1) {
+            JSONObject item = array.getJSONObject(index);
+            images.add(decodeSharedImage(item.optString("filename"), item.optString("dataUrl")));
+        }
+        return images;
+    }
+
+    private SharedImage decodeSharedImage(String filename, String dataUrl) throws IOException {
+        String safeName = sanitizePngFilename(filename);
+        if (dataUrl == null) dataUrl = "";
+        int commaIndex = dataUrl.indexOf(',');
+        String base64 = commaIndex >= 0 ? dataUrl.substring(commaIndex + 1) : dataUrl;
+        byte[] imageBytes = Base64.decode(base64, Base64.DEFAULT);
+        if (imageBytes.length == 0) throw new IOException("Imagen vacia.");
+        return new SharedImage(safeName, imageBytes);
+    }
+
+    private String sanitizePngFilename(String filename) {
+        String safeName = filename == null ? "" : filename.trim().replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (safeName.isEmpty()) safeName = "resumen_cuotas.png";
+        if (!safeName.toLowerCase().endsWith(".png")) {
+            safeName = safeName + ".png";
+        }
+        return safeName;
+    }
+
+    private static class SharedImage {
+        final String filename;
+        final byte[] bytes;
+
+        SharedImage(String filename, byte[] bytes) {
+            this.filename = filename;
+            this.bytes = bytes;
         }
     }
 

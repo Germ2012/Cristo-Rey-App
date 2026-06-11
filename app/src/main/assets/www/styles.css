@@ -29,8 +29,16 @@
   --shadow-soft: 0 8px 24px rgba(32, 48, 40, 0.08);
   --touch: 44px;
   --radius: 8px;
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --android-safe-top: 0px;
+  --android-safe-right: 0px;
+  --android-safe-bottom: 0px;
+  --android-safe-left: 0px;
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--android-safe-top));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--android-safe-right));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--android-safe-bottom));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--android-safe-left));
+  --bottom-nav-height: 76px;
+  --bottom-nav-offset: max(12px, calc(var(--safe-bottom) + 12px));
 }
 
 * {
@@ -99,7 +107,7 @@ img {
 
 .app-shell {
   min-height: 100dvh;
-  padding-bottom: calc(98px + var(--safe-bottom));
+  padding-bottom: calc(var(--bottom-nav-height) + var(--bottom-nav-offset) + 22px);
 }
 
 .main {
@@ -439,10 +447,10 @@ img {
 .bottom-nav {
   position: fixed;
   left: 50%;
-  bottom: calc(10px + var(--safe-bottom));
+  bottom: var(--bottom-nav-offset);
   z-index: 900;
-  width: min(760px, calc(100vw - 22px));
-  min-height: 76px;
+  width: min(760px, calc(100vw - 22px - var(--safe-left) - var(--safe-right)));
+  min-height: var(--bottom-nav-height);
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
@@ -1695,6 +1703,10 @@ td strong {
   max-width: 100%;
 }
 
+.action-menu[open] {
+  z-index: 80;
+}
+
 .action-menu summary {
   min-height: 38px;
   display: inline-flex;
@@ -1717,6 +1729,10 @@ td strong {
   background: var(--surface-2);
 }
 
+.action-menu:not([open]) .action-menu__panel {
+  display: none;
+}
+
 .action-menu__panel {
   position: absolute;
   top: calc(100% + 6px);
@@ -1733,6 +1749,8 @@ td strong {
 }
 
 .action-menu__panel button {
+  position: relative;
+  z-index: 1;
   width: 100%;
   white-space: normal;
   text-align: center;
@@ -1827,14 +1845,29 @@ td strong {
   overflow: auto;
   display: grid;
   justify-items: center;
+  gap: 14px;
   padding: 12px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: #edf2ee;
 }
 
-.member-share-preview {
+.member-share-preview-page {
   width: min(100%, 540px);
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.member-share-preview-page figcaption {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.member-share-preview {
+  width: 100%;
   height: auto;
   display: block;
   border-radius: var(--radius);
@@ -2015,7 +2048,20 @@ td strong {
 
   .list-item > .toolbar {
     width: 100%;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .list-item > .toolbar > .status {
+    justify-self: start;
+  }
+
+  .list-item > .toolbar > .action-menu {
+    width: 100%;
+    position: relative;
+    z-index: 2;
   }
 
   .calendar-day {
@@ -2073,11 +2119,13 @@ td strong {
   }
 
   .bottom-nav {
-    left: 7px;
-    right: 7px;
-    bottom: calc(7px + var(--safe-bottom));
+    --bottom-nav-height: 66px;
+    --bottom-nav-offset: max(12px, calc(var(--safe-bottom) + 12px));
+    left: max(7px, calc(var(--safe-left) + 7px));
+    right: max(7px, calc(var(--safe-right) + 7px));
+    bottom: var(--bottom-nav-offset);
     width: auto;
-    min-height: 66px;
+    min-height: var(--bottom-nav-height);
     gap: 3px;
     padding: 6px;
     transform: none;
