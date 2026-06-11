@@ -1,0 +1,39 @@
+{
+  "name": "Comite de Productores Cristo Rey",
+  "short_name": "Cristo Rey",
+  "id": "/",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#f6f8f3",
+  "theme_color": "#f6f8f3",
+  "description": "Administracion offline de socios, prestamos, caja, maquinaria, ventas y reportes.",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Socios",
+      "short_name": "Socios",
+      "description": "Abrir gestion de socios",
+      "url": ".",
+      "icons": [{ "src": "assets/icon.png", "sizes": "512x512" }]
+    },
+    {
+      "name": "Caja",
+      "short_name": "Caja",
+      "description": "Abrir control de caja",
+      "url": ".",
+      "icons": [{ "src": "assets/icon.png", "sizes": "512x512" }]
+    }
+  ],
+  "prefer_related_applications": false
+}

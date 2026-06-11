@@ -1,0 +1,11 @@
+{
+  "name": "comite-cristo-rey",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App offline-first para administrar el Comite de Productores Cristo Rey.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check app.js && node --check server.mjs"
+  }
+}
