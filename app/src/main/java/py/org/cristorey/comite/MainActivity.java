@@ -71,11 +71,8 @@ public class MainActivity extends Activity {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
-        settings.setAllowFileAccessFromFileURLs(true);
-        settings.setAllowUniversalAccessFromFileURLs(true);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
         settings.setSupportZoom(false);
@@ -112,6 +109,7 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public void onBackPressed() {
         if (webView != null) {
             webView.evaluateJavascript(
@@ -128,9 +126,10 @@ public class MainActivity extends Activity {
             return;
         }
 
-        super.onBackPressed();
+        finish();
     }
 
+    @SuppressWarnings("deprecation")
     private void configureSystemBars() {
         Window window = getWindow();
 
@@ -156,6 +155,7 @@ public class MainActivity extends Activity {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private void installWindowInsetsHandling(View contentView) {
         final int initialLeft = contentView.getPaddingLeft();
         final int initialTop = contentView.getPaddingTop();
@@ -238,12 +238,13 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("Salir de la app")
                 .setMessage("Esta en la pantalla de inicio. Desea cerrar la app?")
-                .setPositiveButton("Salir", (dialog, which) -> MainActivity.super.onBackPressed())
+                .setPositiveButton("Salir", (dialog, which) -> finish())
                 .setNegativeButton("Continuar", null)
                 .show();
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == FILE_CHOOSER_REQUEST_CODE && filePathCallback != null) {
             Uri[] results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
@@ -338,6 +339,7 @@ public class MainActivity extends Activity {
 
     private class AppWebChromeClient extends WebChromeClient {
         @Override
+        @SuppressWarnings("deprecation")
         public boolean onShowFileChooser(
                 WebView webView,
                 ValueCallback<Uri[]> filePathCallback,
@@ -566,6 +568,7 @@ public class MainActivity extends Activity {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private Uri writeShareImage(String filename, byte[] imageBytes) throws IOException {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ContentValues values = new ContentValues();
