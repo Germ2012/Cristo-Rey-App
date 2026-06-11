@@ -2,15 +2,31 @@
 <html lang="es">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#14532d">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f6f8f3">
+    <meta name="color-scheme" content="light">
+    <meta name="description" content="Administracion offline del Comite de Productores Cristo Rey.">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Cristo Rey">
     <title>Comite Cristo Rey</title>
     <link rel="manifest" href="manifest.webmanifest">
-    <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="assets/icon.png" type="image/png">
+    <link rel="stylesheet" href="styles.css?v=23">
   </head>
   <body>
-    <div id="app" class="app-shell"></div>
+    <div id="app" class="app-shell">
+      <main class="main app-loading" aria-live="polite">
+        <section class="loading-card">
+          <img src="assets/icon.png" alt="">
+          <div>
+            <strong>Comite Cristo Rey</strong>
+            <span>Preparando datos locales...</span>
+          </div>
+        </section>
+      </main>
+    </div>
     <template id="modal-template">
       <dialog class="modal">
         <form method="dialog" class="modal__box">
@@ -22,6 +38,6 @@
         </form>
       </dialog>
     </template>
-    <script src="app.js" defer></script>
+    <script src="app.js?v=23" defer></script>
   </body>
 </html>

@@ -11,6 +11,6 @@ Copy-Item -Force (Join-Path $root "app.js") $target
 Copy-Item -Force (Join-Path $root "styles.css") $target
 Copy-Item -Force (Join-Path $root "manifest.webmanifest") $target
 Copy-Item -Force (Join-Path $root "service-worker.js") $target
-Copy-Item -Force (Join-Path $root "assets/icon.svg") (Join-Path $targetAssets "icon.svg")
+Copy-Item -Force (Join-Path $root "assets/icon.png") (Join-Path $targetAssets "icon.png")
 
 Write-Host "App web sincronizada en app/src/main/assets/www"

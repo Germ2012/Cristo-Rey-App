@@ -4,8 +4,9 @@
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:forceDarkAllowed">false</item>
         <item name="android:colorAccent">@color/cristo_green</item>
         <item name="android:windowBackground">@color/cristo_background</item>
     </style>
